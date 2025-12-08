@@ -4,13 +4,12 @@ import java.security.Key;
 import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 
 /**
  *
- * @author Ousmane NDIAYE
+ * @author Ousmane NDIAYE door
  */
 public interface ICrypto {
 
