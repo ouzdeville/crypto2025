@@ -1,11 +1,15 @@
 package com.dcssi.cfc.crypto;
 
-import java.security.Key;
+import java.security.*;
 import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.awt.Point;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 
+import javax.crypto.*;
+import javax.crypto.CipherInputStream;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 
@@ -73,8 +77,34 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public boolean cipherProcess(SecretKey k, String inputFile, String outputFile, int mode, boolean deleteAfter) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'cipherProcess'");
+       
+        try {
+            // (lire + chiffrer) + écrire
+            FileInputStream fis= new FileInputStream(inputFile);
+            FileOutputStream fos= new FileOutputStream(outputFile);
+            Cipher chiffreur=Cipher.getInstance(ICrypto.transform);
+            chiffreur.init(mode, k, new IvParameterSpec(ICrypto.iv.getBytes()));
+
+            CipherInputStream cis=new CipherInputStream(fis, chiffreur);
+
+            // cis pour lire et fos pour écrire
+            byte[] buffer=new byte[4096];
+            int nbreBytesLus;
+            while((nbreBytesLus=cis.read(buffer))!=-1){
+                fos.write(buffer, 0, nbreBytesLus);
+            }
+            cis.close();
+            fis.close();
+            fos.close();    
+            if(deleteAfter){
+                java.io.File f= new java.io.File (inputFile);
+                f.delete();
+            }
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 
     @Override
@@ -104,8 +134,31 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public boolean saveHexKey(Key k, String chemin, String password) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'saveHexKey'");
+        // algo;typeKey;encoded en hex selon le type de la clé instanceof (PrivateKey, PublicKey, SecretKey )
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append(k.getAlgorithm());
+            sb.append(";");
+            if (k instanceof PrivateKey) {
+                sb.append("PrivateKey");
+            } else if (k instanceof PublicKey) {
+                sb.append("PublicKey");
+            } else if (k instanceof SecretKey) {
+                sb.append("SecretKey");
+            } else {
+                throw new IllegalArgumentException("Unsupported key type");
+            }
+            sb.append(";");
+            sb.append(bytesToHex(k.getEncoded()));
+            // écrire dans le fichier
+            FileOutputStream fos = new FileOutputStream(chemin);
+            fos.write(sb.toString().getBytes());
+            fos.close();
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 
     @Override
