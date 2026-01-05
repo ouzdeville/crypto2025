@@ -1,3 +1,4 @@
+import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 
 import com.dcssi.cfc.crypto.CryptoImpl;
@@ -10,5 +11,8 @@ public class Test {
         SecretKey key = crypto.generateKey();
 
         crypto.saveHexKey(key, "mykey.key", null);
+        crypto.cipherProcess(key, "testFile.text", 
+        "encryptedFile.text", 
+        Cipher.ENCRYPT_MODE, false);
     }
 }
