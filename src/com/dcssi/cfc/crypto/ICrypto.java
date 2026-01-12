@@ -25,6 +25,9 @@ public interface ICrypto {
     public static final String algoSign = "SHA256withECDSA";
     public static final int keysizeAsym = 1024;
     public static final String transformAsym = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding";
+    public static final int PRIVATE_KEY = 0;
+    public static final int PUBLIC_KEY = 2;
+    public static final int SECRET_KEY = 3;
 
     /**
      * Recupérer des coordonnees différentes de la souris de l'utilisateur pour

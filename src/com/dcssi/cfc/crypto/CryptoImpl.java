@@ -5,6 +5,7 @@ import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.awt.Point;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
@@ -38,22 +39,20 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public SecretKey generateKey() {
-        try { 
-               byte[] seed = generateSeedTrullyRandom();
-               java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
-               sr.setSeed(seed);
-                javax.crypto.KeyGenerator kg = javax.crypto.KeyGenerator.getInstance(ICrypto.algo);
-                kg.init(ICrypto.keysize, sr);
-                SecretKey sk = kg.generateKey();
-                return sk;
+        try {
+            byte[] seed = generateSeedTrullyRandom();
+            java.security.SecureRandom sr = java.security.SecureRandom.getInstance("SHA1PRNG");
+            sr.setSeed(seed);
+            javax.crypto.KeyGenerator kg = javax.crypto.KeyGenerator.getInstance(ICrypto.algo);
+            kg.init(ICrypto.keysize, sr);
+            SecretKey sk = kg.generateKey();
+            return sk;
         } catch (Exception e) {
             // TODO: handle exception
             e.printStackTrace();
         }
         return null;
     }
-
-   
 
     @Override
     public String bytesToHex(byte[] tab) {
@@ -64,6 +63,7 @@ public class CryptoImpl implements ICrypto {
         }
         return sb.toString();
     }
+
     @Override
     public byte[] hextoBytes(String chaine) {
         int len = chaine.length();
@@ -77,27 +77,27 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public boolean cipherProcess(SecretKey k, String inputFile, String outputFile, int mode, boolean deleteAfter) {
-       
+
         try {
             // (lire + chiffrer) + écrire
-            FileInputStream fis= new FileInputStream(inputFile);
-            FileOutputStream fos= new FileOutputStream(outputFile);
-            Cipher chiffreur=Cipher.getInstance(ICrypto.transform);
+            FileInputStream fis = new FileInputStream(inputFile);
+            FileOutputStream fos = new FileOutputStream(outputFile);
+            Cipher chiffreur = Cipher.getInstance(ICrypto.transform);
             chiffreur.init(mode, k, new IvParameterSpec(ICrypto.iv.getBytes()));
 
-            CipherInputStream cis=new CipherInputStream(fis, chiffreur);
+            CipherInputStream cis = new CipherInputStream(fis, chiffreur);
 
             // cis pour lire et fos pour écrire
-            byte[] buffer=new byte[4096];
+            byte[] buffer = new byte[4096];
             int nbreBytesLus;
-            while((nbreBytesLus=cis.read(buffer))!=-1){
+            while ((nbreBytesLus = cis.read(buffer)) != -1) {
                 fos.write(buffer, 0, nbreBytesLus);
             }
             cis.close();
             fis.close();
-            fos.close();    
-            if(deleteAfter){
-                java.io.File f= new java.io.File (inputFile);
+            fos.close();
+            if (deleteAfter) {
+                java.io.File f = new java.io.File(inputFile);
                 f.delete();
             }
             return true;
@@ -110,11 +110,38 @@ public class CryptoImpl implements ICrypto {
     @Override
     public boolean cipherProcessFolder(SecretKey k, String inputFolder, String outputFolder, int mode,
             boolean deleteAfter) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'cipherProcessFolder'");
+        try {
+            File folder = new File(inputFolder);
+            File[] files = folder.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isFile()) {
+                        // on chiffre
+                        String outputFile = "";
+                        if (mode == Cipher.ENCRYPT_MODE)
+                            outputFile = outputFolder + "/" + file.getName() + ".enc";
+                        else if (mode == Cipher.DECRYPT_MODE)
+                            outputFile = outputFolder + "/" +file.getName().substring(0, file.getName().length()-4);
+                        if(mode == Cipher.DECRYPT_MODE && !file.getName().endsWith(".enc")) continue;
+                        cipherProcess(k, file.getAbsolutePath(), outputFile, mode, deleteAfter);
+
+                    } else if (file.isDirectory()) {
+                        String outputSubFolder = outputFolder + "/" + file.getName();
+                        cipherProcessFolder(k, file.getAbsolutePath(), outputSubFolder, mode, deleteAfter);
+
+                    }
+
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return true;
     }
 
-     @Override
+    @Override
     public SecretKey generatePBEKey(String password) {
         // TODO Auto-generated method stub
         throw new UnsupportedOperationException("Unimplemented method 'generatePBEKey'");
@@ -128,13 +155,44 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public Key loadHexKey(String chemin, String password, int type) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'loadHexKey'");
+        // algo;typeKey;encoded en hex selon le type de la clé instanceof (PrivateKey,
+        // PublicKey, SecretKey )
+        try {
+            FileInputStream fis = new FileInputStream(chemin);
+            byte[] data = fis.readAllBytes();
+            fis.close();
+            String content = new String(data);
+            String[] parts = content.split(";");
+            if (parts.length != 3) {
+                throw new IllegalArgumentException("Invalid key file format");
+            }
+            String algo = parts[0];
+            String typeKey = parts[1];
+            byte[] encoded = hextoBytes(parts[2]);
+            
+            if (typeKey.equals("PrivateKey") && type == ICrypto.PRIVATE_KEY) {
+                KeyFactory kf = KeyFactory.getInstance(algo);
+                return kf.generatePrivate(new java.security.spec.PKCS8EncodedKeySpec(encoded));
+            } else if (typeKey.equals("PublicKey") && type == ICrypto.PUBLIC_KEY) {
+                KeyFactory kf = KeyFactory.getInstance(algo);
+                return kf.generatePublic(new java.security.spec.X509EncodedKeySpec(encoded));
+            } else if (typeKey.equals("SecretKey") && type == ICrypto.SECRET_KEY) {
+
+                return new javax.crypto.spec.SecretKeySpec(encoded, algo);
+            } else {
+                throw new IllegalArgumentException("Key type mismatch or unsupported key type");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return null;
     }
 
     @Override
     public boolean saveHexKey(Key k, String chemin, String password) {
-        // algo;typeKey;encoded en hex selon le type de la clé instanceof (PrivateKey, PublicKey, SecretKey )
+        // algo;typeKey;encoded en hex selon le type de la clé instanceof (PrivateKey,
+        // PublicKey, SecretKey )
         try {
             StringBuilder sb = new StringBuilder();
             sb.append(k.getAlgorithm());
