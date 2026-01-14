@@ -12,10 +12,7 @@ public class Test {
         SecretKey key;
 
         //crypto.saveHexKey(key, "mykey.key", null);
-        key=(SecretKey) crypto.loadHexKey(
-            "mykey.key", 
-            null,
-            ICrypto.SECRET_KEY);
+        key= crypto.generatePBEKey("INGENIEUR");
         crypto.cipherProcessFolder(key,
              "dossier",
               "dossier",

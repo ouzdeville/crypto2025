@@ -13,6 +13,8 @@ import javax.crypto.*;
 import javax.crypto.CipherInputStream;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 
 public class CryptoImpl implements ICrypto {
 
@@ -144,7 +146,19 @@ public class CryptoImpl implements ICrypto {
     @Override
     public SecretKey generatePBEKey(String password) {
         // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'generatePBEKey'");
+       try {
+        PBEKeySpec pbeKeySpec = new PBEKeySpec(password.toCharArray(),ICrypto.salt,
+        ICrypto.iteration, ICrypto.keysize);
+        SecretKeyFactory keyFactory = SecretKeyFactory.getInstance(ICrypto.kdf);
+        SecretKey k = keyFactory.generateSecret(pbeKeySpec);
+
+        return new SecretKeySpec(k.getEncoded(), ICrypto.algo);
+
+       } catch (Exception e) {
+        e.printStackTrace();
+        // TODO: handle exception
+       }
+        return null;
     }
 
     @Override
