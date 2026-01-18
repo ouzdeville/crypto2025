@@ -1,4 +1,4 @@
-package com.dcssi.cfc.crypto;
+package dcssi.cfc.crypto;
 
 import java.security.Key;
 import java.security.KeyPair;
@@ -7,10 +7,7 @@ import java.security.PublicKey;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 
-/**
- *
- * @author Ousmane NDIAYE door
- */
+
 public interface ICrypto {
 
     public static final String algo = "AES";
@@ -25,6 +22,9 @@ public interface ICrypto {
     public static final String algoSign = "SHA256withECDSA";
     public static final int keysizeAsym = 1024;
     public static final String transformAsym = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding";
+    public static final int PRIVATE_KEY = 0;
+    public static final int PUBLIC_KEY = 2;
+    public static final int SECRET_KEY = 3;
 
     /**
      * Recupérer des coordonnees différentes de la souris de l'utilisateur pour

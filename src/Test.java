@@ -1,6 +1,8 @@
+import dcssi.cfc.crypto.CryptoImpl;
+import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 
-import com.dcssi.cfc.crypto.CryptoImpl;
+
 
 public class Test {
 
@@ -10,5 +12,8 @@ public class Test {
         SecretKey key = crypto.generateKey();
 
         crypto.saveHexKey(key, "mykey.key", null);
+
+        SecretKey key1 = crypto.generatePBEKey("INGENIEUR");
+        crypto.cipherProcessFolder(key1, "dossier", "dossier", Cipher.DECRYPT_MODE, true);
     }
 }
