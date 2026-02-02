@@ -1,5 +1,4 @@
 package dcssi.cfc.crypto;
-
 import java.awt.Point;
 import java.io.File;
 import java.io.FileInputStream;
@@ -111,33 +110,49 @@ public class CryptoImpl implements ICrypto {
     public boolean cipherProcessFolder(SecretKey k, String inputFolder, String outputFolder, int mode,
             boolean deleteAfter) {
                 try {
-                    File folder = new File(inputFolder);
-                    File [] files = folder.listFiles();
-                    if (files!=null){
-                        for (File file: files){
-                            if (file.isFile()){
-                                // on chiffre
-                                String outputFile = "";
-                                if(mode == Cipher.ENCRYPT_MODE)
-                                    outputFile = outputFolder + "/"+ file.getName() + ".enc";
-                                else if (mode == Cipher.DECRYPT_MODE)
-                                    outputFile = outputFolder + "/"+ file.getName().substring(0, file.getName().length()-4);
-                                
-                                cipherProcess(k, file.getAbsolutePath(),outputFile,mode,deleteAfter);
-                            } else if (file.isDirectory()){
-                                String outputSubFolder =outputFolder+"/"+file.getName()+".enc";
-                                cipherProcess(k, file.getAbsolutePath(), outputSubFolder, mode, deleteAfter);
-                            }
-                            
-                        }
-                    }
-
-
-                }catch(Exception e){
-                    e.printStackTrace();
-                }
+        File folder = new File(inputFolder);
+        File destination = new File(outputFolder);
         
-                return true;
+        // Créer le dossier de destination s'il n'existe pas
+        if (!destination.exists()) {
+            destination.mkdirs();
+        }
+
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    // Calcul du nom de fichier de sortie
+                    String outputFileName;
+                    if (mode == javax.crypto.Cipher.ENCRYPT_MODE) {
+                        outputFileName = file.getName() + ".enc";
+                    } else {
+                        // Retire .enc s'il existe
+                        outputFileName = file.getName().endsWith(".enc") 
+                            ? file.getName().substring(0, file.getName().length() - 4) 
+                            : file.getName();
+                    }
+                    
+                    String outputPath = outputFolder + File.separator + outputFileName;
+                    cipherProcess(k, file.getAbsolutePath(), outputPath, mode, deleteAfter);
+                    
+                } else if (file.isDirectory()) {
+                    // RÉCURSIVITÉ : On appelle la même méthode pour le sous-dossier
+                    String subFolderPath = outputFolder + File.separator + file.getName();
+                    cipherProcessFolder(k, file.getAbsolutePath(), subFolderPath, mode, deleteAfter);
+                }
+            }
+        }
+        
+        // Optionnel : supprimer le dossier source une fois vide
+        if (deleteAfter) {
+            folder.delete();
+        }
+        return true;
+    } catch (Exception e) {
+        e.printStackTrace();
+        return false;
+    }
     }
 
      @Override

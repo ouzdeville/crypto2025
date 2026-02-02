@@ -1,22 +1,22 @@
 package dcssi.cfc.chat;
 
+import dcssi.cfc.crypto.CryptoImpl;
+import dcssi.cfc.crypto.ICrypto;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.Socket;
-import java.nio.Buffer;
+import java.security.Key;
 import javax.crypto.Cipher;
-
-import dcssi.cfc.crypto.ICrypto;
+import javax.crypto.spec.IvParameterSpec;
 
 public class Emetteur extends Thread {
-    private Cipher cipher = null;
     private Socket s = null;
-    private ICrypto crypto;
-    public Emetteur(Cipher cipher, Socket s, String name) {
+    private ICrypto crypto = new CryptoImpl();
+    public Emetteur(Socket s, String name) {
         super(name);
         this.s = s;
-        this.cipher = cipher;
     }
 
 
@@ -24,20 +24,22 @@ public class Emetteur extends Thread {
     public void run() {
         // Lire depuis le clavier, chiffrer et envoyer au socket
         try {
+            Cipher cipher = Cipher.getInstance(ICrypto.transform);
+            Key key = crypto.generatePBEKey("INGENIEUR");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(ICrypto.iv.getBytes()));
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(s.getOutputStream()));
             
             while (true) { 
                 String line = br.readLine();
-                lineEnc = cipher.doFinal(line.getBytes());
+                byte[] lineEnc = cipher.doFinal(line.getBytes());
                 String lineHex = crypto.bytesToHex(lineEnc);
                 bw.write(lineHex);
                 bw.newLine();
                 bw.flush();
             }
            
-        }
-            
+        }          
         catch (Exception e) {
             e.printStackTrace();
         }

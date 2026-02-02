@@ -1,29 +1,38 @@
 package dcssi.cfc.chat;
 
+import dcssi.cfc.crypto.CryptoImpl;
+import dcssi.cfc.crypto.ICrypto;
 import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.Socket;
-
+import java.security.Key;
 import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
 
 public class Recepteur extends Thread {
     private Cipher cipher = null;
     private Socket s = null;
+    private ICrypto crypto = new CryptoImpl();
 
-    public Recepteur(Cipher cipher, Socket s, String name) {
+    public Recepteur(Socket s, String name) {
         super(name);
         this.s = s;
-        this.cipher = cipher;
     }
 
     @Override
     public void run() {
         // Lire depuis le socket, déchiffrer et afficher
         try {
-            BufferedReader br = new BufferedReader(new java.io.InputStreamReader(s.getInputStream()));
-            String lineHex = br.readLine();
-            byte[] lineEnc = crypto.hexToBytes(lineHex);
-            String line = new String(cipher.doFinal(lineEnc));
-            System.out.println(this.getName() + "Message reçu : " + line);
+            Cipher cipher = Cipher.getInstance(ICrypto.transform);
+            Key key = crypto.generatePBEKey("INGENIEUR");
+            cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(ICrypto.iv.getBytes()));
+            BufferedReader br = new BufferedReader(new InputStreamReader(s.getInputStream()));
+            while (true) { 
+                String lineHex = br.readLine();
+                byte[] lineEnc = crypto.hextoBytes(lineHex);
+                String line = new String(cipher.doFinal(lineEnc));
+                System.out.println(this.getName() + "Message reçu : " + line);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
