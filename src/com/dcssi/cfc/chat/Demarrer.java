@@ -7,6 +7,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 public class Demarrer {
+
     public static void main(String[] args) {
         Socket s = null;
         try {
@@ -17,8 +18,14 @@ public class Demarrer {
             try {
                 ServerSocket SS = new ServerSocket(2026);
                 System.out.println("Serveur démarrer!");
-                s = SS.accept();
-                System.out.println("Client trouver !");
+                while (true) {
+                    s = SS.accept();
+                    ICrypto crypto = new CryptoImpl();
+                    //Cipher cipher = Cipher.getInstance(null);
+                    new Emetteur(s, "AD").start();
+                    new Recepteur(s, "AD").start();
+                }
+                //System.out.println("Client trouver !"); 
 
             } catch (Exception ex) {
                 System.getLogger(Demarrer.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
@@ -26,9 +33,9 @@ public class Demarrer {
 
         }
         ICrypto crypto = new CryptoImpl();
-            //Cipher cipher = Cipher.getInstance(null);
-            new Emetteur(s, "AD").start();
-            new Recepteur(s, "AD").start();
+        //Cipher cipher = Cipher.getInstance(null);
+        new Emetteur(s, "AD").start();
+        new Recepteur(s, "AD").start();
     }
 
 }
