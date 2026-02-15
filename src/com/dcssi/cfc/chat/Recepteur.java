@@ -13,10 +13,12 @@ public class Recepteur extends Thread {
     private Cipher cipher = null;
     private Socket s = null;
     private ICrypto crypto = new CryptoImpl();
+    private String password;
 
-    public Recepteur(Socket s, String name) {
+    public Recepteur(Socket s, String name, String password) {
         super(name);
         this.s = s;
+        this.password = password;
     }
 
     @Override
@@ -24,7 +26,7 @@ public class Recepteur extends Thread {
         // Lire depuis le socket, déchiffrer et afficher
         try {
             Cipher cipher = Cipher.getInstance(ICrypto.transform);
-            Key key = crypto.generatePBEKey("INGENIEUR");
+            Key key = crypto.generatePBEKey(password);
             cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(ICrypto.iv.getBytes()));
             BufferedReader br = new BufferedReader(new InputStreamReader(s.getInputStream()));
             while (true) { 

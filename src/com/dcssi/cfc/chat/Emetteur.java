@@ -14,9 +14,11 @@ import javax.crypto.spec.IvParameterSpec;
 public class Emetteur extends Thread {
     private Socket s = null;
     private ICrypto crypto = new CryptoImpl();
-    public Emetteur(Socket s, String name) {
+    private String password;
+    public Emetteur(Socket s, String name, String password) {
         super(name);
         this.s = s;
+        this.password = password;
     }
 
 
@@ -25,7 +27,7 @@ public class Emetteur extends Thread {
         // Lire depuis le clavier, chiffrer et envoyer au socket
         try {
             Cipher cipher = Cipher.getInstance(ICrypto.transform);
-            Key key = crypto.generatePBEKey("INGENIEUR");
+            Key key = crypto.generatePBEKey(password);
             cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(ICrypto.iv.getBytes()));
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(s.getOutputStream()));

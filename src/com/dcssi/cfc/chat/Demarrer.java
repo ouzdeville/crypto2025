@@ -5,6 +5,7 @@ import dcssi.cfc.crypto.ICrypto;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Scanner;
 
 public class Demarrer {
 
@@ -22,8 +23,11 @@ public class Demarrer {
                     s = SS.accept();
                     ICrypto crypto = new CryptoImpl();
                     //Cipher cipher = Cipher.getInstance(null);
-                    new Emetteur(s, "AD").start();
-                    new Recepteur(s, "AD").start();
+                    System.out.println("Taper votre mot de passe");
+                    Scanner sc = new Scanner(System.in);
+                    String mdp = sc.nextLine();
+                    new Emetteur(s, "xx",mdp).start();
+                    new Recepteur(s, "xx",mdp).start();
                 }
                 //System.out.println("Client trouver !"); 
 
@@ -34,8 +38,11 @@ public class Demarrer {
         }
         ICrypto crypto = new CryptoImpl();
         //Cipher cipher = Cipher.getInstance(null);
-        new Emetteur(s, "AD").start();
-        new Recepteur(s, "AD").start();
+        System.out.println("Taper votre mot de passe");
+        Scanner sc = new Scanner(System.in);
+        String mdp = sc.nextLine();
+        new Emetteur(s, "xx",mdp).start();
+        new Recepteur(s, "xx",mdp).start();
     }
 
 }
