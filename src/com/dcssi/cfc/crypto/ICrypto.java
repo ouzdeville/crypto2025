@@ -7,10 +7,7 @@ import java.security.PublicKey;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 
-/**
- *
- * @author Ousmane NDIAYE door
- */
+
 public interface ICrypto {
 
     public static final String algo = "AES";
