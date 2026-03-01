@@ -1,161 +1,148 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package com.dcssi.cfc.chat;
 
 import com.dcssi.cfc.crypto.*;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
+import java.io.*;
 import java.net.Socket;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
-
-import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
-
-import java.io.IOException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Scanner;
-import javax.swing.JOptionPane;
-import javax.swing.JPasswordField;
+import java.util.Objects;
+import java.util.logging.*;
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
 
-class Correspondant {
+public class Correspondant {
 
     public String nom;
     public String prenom;
-    public String id;
     public String mon_id;
+    public String son_id;
     public Socket socket;
     public SecretKey secretKey;
     public PublicKey publicKey;
     public Certificate certificate;
     public boolean isServer;
-    private static ICrypto crypto = new CryptoImpl();
-    Cipher cipher = null;
-    BufferedWriter bw = null;
-    private String password;
-    public List<String> messages = new ArrayList<>();
+    public String password;
+    public List<String> messages  = new ArrayList<>();
+    /** Protocoles annoncés par ce correspondant (ex: psk, dh, dh_signe, kem). */
+    public java.util.Set<String> protocols = new java.util.LinkedHashSet<>();
 
-    // constructeur, getters, setters, etc.
-    public Correspondant(String mon_id, Socket socket, boolean isServer, String password) throws Exception {
-        cipher = Cipher.getInstance(ICrypto.transform);
+    // ── Chiffrement ──────────────────────────────────────────────────────────
+    private static final ICrypto crypto = new CryptoImpl();
+    public Cipher encryptor = null;
+    public Cipher decryptor = null;
+
+    /** Writer partagé pour toute communication avec ce correspondant. */
+    public BufferedWriter bw = null;
+
+    // ── Constructeurs ────────────────────────────────────────────────────────
+
+    public Correspondant() {}
+
+    public Correspondant(String mon_id, String son_id, Socket socket,
+                         boolean isServer, String password) throws Exception {
+        this.mon_id   = mon_id;
+        this.son_id   = son_id;
+        this.socket   = socket;
         this.isServer = isServer;
-        this.socket = socket;
-        this.mon_id = mon_id;
         this.password = password;
-        this.negocierCle();
-
+        // bw sera initialisé après connexion (joinServeur)
     }
 
-    public void sendMessage(String message) throws Exception {
-        // Implémenter l'envoi de message chiffré
-        byte[] lineEnc = cipher.doFinal(message.getBytes());
-        String lineHex = crypto.bytesToHex(lineEnc);
-        bw.write(lineHex);
+    // ── Envoi de messages ────────────────────────────────────────────────────
+
+    /**
+     * Envoie un message chiffré.  Lance une exception explicite si PSK
+     * n'est pas encore initialisé.
+     */
+    public void sendMessage(String destId, String message) throws Exception {
+        if (encryptor == null || bw == null) {
+            throw new IllegalStateException(
+                "PSK non initialisé avec " + son_id + " — négociez d'abord la clé.");
+        }
+        byte[] enc = encryptor.doFinal(message.getBytes("UTF-8"));
+        String payload = crypto.bytesToHex(enc);
+        bw.write(destId + "|" + payload);
         bw.newLine();
         bw.flush();
     }
 
     /**
-     * Negocier la cle synetrique a utiliser plusieurs options a implementer 1-
-     * Cle partagee 2- Diffie-Hellman 3- Chiffrement Asymetrique 4- Signature
-     * seule 5- Diffie-Hellman signee
-     *
+     * Envoie un message en clair via le BW partagé.
+     * FIX : n'ouvre plus un nouveau flux — utilise this.bw.
      */
-    public void negocierCle() throws InvalidKeyException, InvalidAlgorithmParameterException, IOException {
-        // Implémenter la négociation de clé (ex: Diffie-Hellman, RSA,PSK, etc.)
-        // System.out.println("Donner votre mot de passe pour négocier la clé :");
-        // sc = new Scanner(System.in);
-        // String password = sc.nextLine();
-        String protocole = "psk";
-
-        if (this.isServer) {
-            // Lire l'ID du client depuis le socket
-            try {
-                BufferedReader br = new BufferedReader(new InputStreamReader(this.socket.getInputStream()));
-                String idClient = br.readLine();
-                this.id = idClient;
-                protocole = br.readLine();
-                
-                this.secretKey = crypto.generatePBEKey(password);
-                cipher.init(Cipher.ENCRYPT_MODE, this.secretKey, new IvParameterSpec(ICrypto.iv.getBytes()));
-                this.bw = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
-
-                // Envoyer l'ID du serveur au client
-                BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
-                bw.write(this.mon_id);
-                bw.newLine();
-                bw.flush();
-
-                
-
-            } catch (IOException e) {
-                System.err.println("Erreur lors de la lecture de l'ID du client : " + e.getMessage());
-                // this.mon_id = this.mon_id + "_S"; // fallback en cas d'erreur
-            }
-
-        } else {
-            // Envoyer pui lire l'ID du serveur depuis le socket
-            try {
-                BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
-                bw.write(this.mon_id);
-                bw.newLine();
-                bw.flush();
-                protocole = "psk";
-                bw.write(protocole);
-                bw.newLine();
-                bw.flush();
-                BufferedReader br = new BufferedReader(new InputStreamReader(this.socket.getInputStream()));
-                String idServeur = br.readLine();
-                this.id = idServeur;
-            } catch (IOException e) {
-                System.err.println("Erreur lors de la lecture de l'ID du serveur : " + e.getMessage());
-                // this.id = idSource + "_C"; // fallback en cas d'erreur
-            }
+    public void sendClearMessage(String destId, String message) throws Exception {
+        if (bw == null) {
+            // Initialisation paresseuse du writer si nécessaire
+            bw = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
         }
-        
-        switch (protocole) {
-                    case "psk":
-                        this.secretKey = crypto.generatePBEKey(password);
-                        cipher.init(Cipher.ENCRYPT_MODE, this.secretKey, new IvParameterSpec(ICrypto.iv.getBytes()));
-                        this.bw = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
-                        break;
-                    case "enc":
-                        break;
-                    case "dh":
-                        break;
-                    case "signature":
-                        break;
-                    case "dh_signe":
-                        break;
-
-                    default:
-                        this.secretKey = crypto.generatePBEKey(password);
-                        cipher.init(Cipher.ENCRYPT_MODE, this.secretKey, new IvParameterSpec(ICrypto.iv.getBytes()));
-                        this.bw = new BufferedWriter(new OutputStreamWriter(this.socket.getOutputStream()));
-                        break;
-                }
-
+        bw.write(destId + "|" + message);
+        bw.newLine();
+        bw.flush();
     }
 
-    public String getPassword() {
-        return password;
+    /** Demande la liste des clients au serveur. */
+    public void demanderListeClients() throws Exception {
+        sendClearMessage("__LIST__", "");
     }
 
-    void ajouterMessage(String msg) {
-        this.messages.add(msg);
+    // ── Initialisation PSK ───────────────────────────────────────────────────
+
+    /**
+     * Initialise le chiffrement symétrique par mot de passe partagé.
+     * Appelé des deux côtés une fois le mot de passe échangé hors-bande.
+     */
+    public void initpsk(String pwd) {
+        try {
+            this.password  = pwd;
+            this.secretKey = crypto.generatePBEKey(pwd);
+
+            encryptor = Cipher.getInstance(ICrypto.transform);
+            decryptor = Cipher.getInstance(ICrypto.transform);
+            IvParameterSpec ivSpec = new IvParameterSpec(ICrypto.iv.getBytes("UTF-8"));
+            encryptor.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
+            decryptor.init(Cipher.DECRYPT_MODE, secretKey, ivSpec);
+
+            // Assurer que le writer est prêt
+            if (bw == null) {
+                bw = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+            }
+            System.out.println("[PSK] Clé établie avec " + son_id);
+
+        } catch (Exception ex) {
+            Logger.getLogger(Correspondant.class.getName())
+                  .log(Level.SEVERE, "Erreur initpsk", ex);
+        }
     }
+
+    /** Indique si la session est prête à chiffrer/déchiffrer. */
+    public boolean isPskReady() {
+        return encryptor != null && decryptor != null;
+    }
+
+    // ── Historique ───────────────────────────────────────────────────────────
+
+    public void ajouterMessage(String msg) {
+        messages.add(msg);
+    }
+
+    // ── Object overrides ─────────────────────────────────────────────────────
 
     @Override
     public String toString() {
-        return id;
+        return son_id + "|" + (nom != null ? nom : "") + "|" + (prenom != null ? prenom : "");
     }
 
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof Correspondant)) return false;
+        Correspondant cor = (Correspondant) obj;
+        return Objects.equals(this.son_id, cor.son_id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(son_id);
+    }
 }
