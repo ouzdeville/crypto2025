@@ -179,9 +179,10 @@ public class ProtocolNegotiator {
 
         if (signed) {
             // on veut Signer la clé DH publique avec la clé RSA privée
+            
             // recuperer la cle prive de local 
-            // signer pubHex avec String sig = signHex(pubHex, local.getKeyPair().getPrivate());
-            // envoyer sendNeg(DH_SIGNE, "INIT", pubHex + ":" + sig);
+            String sig = signHex(pubHex, local.getKeyPair().getPrivate());
+            sendNeg(DH_SIGNE, "INIT", pubHex + ":" + sig);
         } else {
             sendNeg(DH, "INIT", pubHex);
         }
@@ -200,8 +201,10 @@ public class ProtocolNegotiator {
                 String sig     = parts[1];
                 //q1 recupere la cle publique de this.remote
                 //q2 appeler la methode verifyHex si faux lancer une exception
-                
-                //q3 System.out.println("[DH+Sign] Signature d'Alice vérifiée ✓");
+                boolean isGood = verifyHex(alicePubHex, sig, this.remote.publicKey);
+                if(isGood) 
+                System.out.println("[DH+Sign] Signature d'Alice vérifiée ✓");
+                else  throw new UnsupportedOperationException("Signature non valide");
             } else {
                 alicePubHex = data;
             }
@@ -216,8 +219,8 @@ public class ProtocolNegotiator {
             // Envoyer la clé DH de Bob (éventuellement signée)
             String bobPubHex = dhPublic.toString(16);
             if (signed && local.getKeyPair() != null) {
-                // signer signHex(bobPubHex, local.getKeyPair().getPrivate());
-                // envoyer sendNeg(DH_SIGNE, "RESP", bobPubHex + ":" + sig);
+                String sig = signHex(bobPubHex, local.getKeyPair().getPrivate());
+                sendNeg(DH_SIGNE, "RESP", bobPubHex + ":" + sig);
                 
             } else {
                 sendNeg(DH, "RESP", bobPubHex);
@@ -238,6 +241,10 @@ public class ProtocolNegotiator {
                 //q1 recupere la cle publique de this.remote
                 //q2 appeler la methode verifyHex si faux lancer une exception
                 //q3 System.out.println("[DH+Sign] Signature de Bob vérifiée ✓");
+                 boolean isGood = verifyHex(bobPubHex, sig, this.remote.publicKey);
+                if(isGood) 
+                System.out.println("[DH+Sign] Signature de Bob vérifiée ✓");
+                else  throw new UnsupportedOperationException("Signature de Bob non valide");
             } else {
                 bobPubHex = data;
             }

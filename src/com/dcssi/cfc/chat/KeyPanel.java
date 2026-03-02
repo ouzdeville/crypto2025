@@ -471,7 +471,11 @@ public class KeyPanel extends JDialog {
         if (actifs.isEmpty()) { erreur("Cochez au moins un protocole avant d'annoncer."); return; }
 
         String protos  = String.join(",", actifs);
-        String payload = "__PROTO__|" + protos;
+        String maPublicKey="";
+        if(pubLoaded!=null){
+            maPublicKey=Base64.getEncoder().encodeToString(pubLoaded.getEncoded());// RSA
+        }
+        String payload = "__PROTO__|" + protos+"!"+maPublicKey;
 
         try {
             serveurCorr.sendClearMessage("__BROADCAST__", payload);

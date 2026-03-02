@@ -3,6 +3,13 @@ package com.dcssi.cfc.chat;
 import com.dcssi.cfc.crypto.*;
 import java.io.*;
 import java.net.Socket;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.JOptionPane;
 
 public class Recepteur extends Thread {
@@ -117,13 +124,29 @@ public class Recepteur extends Thread {
     private void traiterMessage(String from, String payload) {
         // -- Annonce de protocoles supportés par un pair (__BROADCAST__) --
         if (payload.startsWith("__PROTO__|")) {
-            String protos = payload.substring("__PROTO__|".length());
+            String protosandKey = payload.substring("__PROTO__|".length());
             Correspondant c = findOrCreate(from);
             c.protocols.clear();
+            String[] TabprotosAndKey = protosandKey.split("!");
+            String protos = TabprotosAndKey[0];
+            
             for (String p : protos.split(",")) {
                 String trimmed = p.trim();
                 if (!trimmed.isEmpty()) c.protocols.add(trimmed);
             }
+            if(TabprotosAndKey.length>=2){
+                try {
+                    
+                    String pubBase64 = TabprotosAndKey[1];
+                    System.out.println("← PubkeyRSA "+pubBase64);
+                    byte[] pubkey = Base64.getDecoder().decode(pubBase64);
+                    PublicKey remotePubkey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(pubkey));
+                    c.publicKey=remotePubkey;
+                } catch (Exception ex) {
+                    Logger.getLogger(Recepteur.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+            
             updateCorrespondant(c);
             System.out.println("[PROTO] " + from + " supporte : " + c.protocols);
             // Rafraîchir la table pour afficher le badge protocoles
