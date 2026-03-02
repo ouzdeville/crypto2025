@@ -69,16 +69,18 @@ public class KeyPanel extends JDialog {
     private JButton       btnSauvegarder;
     private JToggleButton btnTogglePriv;
 
-    private final String       login;
+    private final String        login;
     private final Correspondant serveurCorr;
+    private final ChatFrame     chatFrame;   // callback pour mise à jour sidebar
 
     // ─────────────────────────────────────────────────────────────────────────
-    public KeyPanel(JFrame parent, String login, Correspondant serveurCorr) {
+    public KeyPanel(JFrame parent, String login, Correspondant serveurCorr, ChatFrame chatFrame) {
         super(parent, "Mes Clés — " + login.toUpperCase(), true);
         this.login       = login;
         this.serveurCorr = serveurCorr;
+        this.chatFrame   = chatFrame;
         buildUI();
-        tryAutoLoad();
+        restaurerEtat();
         setVisible(true);
     }
 
@@ -233,6 +235,8 @@ public class KeyPanel extends JDialog {
                 cb.setEnabled(false);
                 cb.setForeground(TEXT_MUTED);
             }
+            // Notifier ChatFrame dès qu'une case est cochée/décochée
+            cb.addActionListener(e -> notifierChatFrame());
 
             JLabel descLabel = new JLabel(desc);
             descLabel.setFont(FONT_SMALL);
@@ -304,6 +308,7 @@ public class KeyPanel extends JDialog {
                     keyPair    = kp;
                     appliquerCles();
                     setStatut("✔  Paire RSA 2048 générée (non sauvegardée)", ACCENT_WARN);
+                    notifierChatFrame();
                 } catch (Exception ex) {
                     erreur("Erreur génération : " + ex.getMessage());
                     setStatut("✖  Erreur génération", ACCENT_PRIV);
@@ -324,7 +329,7 @@ public class KeyPanel extends JDialog {
             byte[] der = fromPem(Files.readString(fc.getSelectedFile().toPath()));
             pubLoaded  = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der));
             afficherPublique();
-            mettreAJourEtat();
+            mettreAJourEtat();  // notifierChatFrame() appelé dedans
             setStatut("✔  Clé publique : " + fc.getSelectedFile().getName(), ACCENT_OK);
         } catch (Exception ex) {
             erreur("Lecture clé publique :\n" + ex.getMessage());
@@ -343,7 +348,7 @@ public class KeyPanel extends JDialog {
             if (btnTogglePriv.isSelected()) { btnTogglePriv.setSelected(false); togglePrivateKey(); }
             areaPrivateKey.setText("●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●");
             areaPrivateKey.setEnabled(false);
-            mettreAJourEtat();
+            mettreAJourEtat();  // notifierChatFrame() appelé dedans
             setStatut("✔  Clé privée : " + fc.getSelectedFile().getName(), ACCENT_OK);
         } catch (Exception ex) {
             erreur("Lecture clé privée :\n" + ex.getMessage());
@@ -391,6 +396,20 @@ public class KeyPanel extends JDialog {
         }
 
         btnSauvegarder.setEnabled(pairOk);
+        notifierChatFrame();  // ← mise à jour sidebar
+    }
+
+    /**
+     * Notifie ChatFrame de l'état courant (clé + protocoles cochés).
+     * Appelé à chaque changement : chargement, génération, coche protocole.
+     */
+    private void notifierChatFrame() {
+        if (chatFrame == null) return;
+        java.util.Set<String> protos = new java.util.LinkedHashSet<>();
+        for (Map.Entry<String, JCheckBox> e : checkBoxes.entrySet()) {
+            if (e.getValue().isSelected()) protos.add(e.getKey());
+        }
+        chatFrame.refreshLocalConfig(keyPair, protos);
     }
 
     // ── Toggle clé privée ─────────────────────────────────────────────────────
@@ -466,27 +485,61 @@ public class KeyPanel extends JDialog {
 
     // ── Auto-chargement ───────────────────────────────────────────────────────
 
-    private void tryAutoLoad() {
+    /**
+     * Restaure l'état dans cet ordre de priorité :
+     *   1. Mémoire de ChatFrame  (clés déjà en RAM + protocoles cochés)
+     *   2. Fichiers .pem sur le disque  (premier lancement ou après redémarrage)
+     */
+    private void restaurerEtat() {
+
+        // ── 1. Restaurer depuis ChatFrame (prioritaire) ────────────────────
+        if (chatFrame != null && chatFrame.localKeyPair != null) {
+            pubLoaded  = chatFrame.localKeyPair.getPublic();
+            privLoaded = chatFrame.localKeyPair.getPrivate();
+            keyPair    = chatFrame.localKeyPair;
+            afficherPublique();
+            areaPrivateKey.putClientProperty("__raw__",
+                    toPem("PRIVATE KEY", privLoaded.getEncoded()));
+            afficherAlgoPriv();
+        }
+
+        // ── Restaurer les protocoles cochés ───────────────────────────────
+        if (chatFrame != null && !chatFrame.localProtocols.isEmpty()) {
+            for (Map.Entry<String, JCheckBox> e : checkBoxes.entrySet()) {
+                e.getValue().setSelected(chatFrame.localProtocols.contains(e.getKey()));
+            }
+        }
+
+        if (pubLoaded != null || privLoaded != null) {
+            mettreAJourEtat();
+            setStatut("✔  Configuration restaurée", ACCENT_OK);
+            return;   // pas besoin de lire le disque
+        }
+
+        // ── 2. Fallback : lire les fichiers .pem sur le disque ─────────────
         try {
             File pubFile  = new File(login + "_pub.pem");
             File privFile = new File(login + "_priv.pem");
             if (pubFile.exists()) {
                 pubLoaded = KeyFactory.getInstance("RSA")
-                        .generatePublic(new X509EncodedKeySpec(fromPem(Files.readString(pubFile.toPath()))));
+                        .generatePublic(new X509EncodedKeySpec(
+                                fromPem(Files.readString(pubFile.toPath()))));
                 afficherPublique();
             }
             if (privFile.exists()) {
                 privLoaded = KeyFactory.getInstance("RSA")
-                        .generatePrivate(new PKCS8EncodedKeySpec(fromPem(Files.readString(privFile.toPath()))));
-                areaPrivateKey.putClientProperty("__raw__", toPem("PRIVATE KEY", privLoaded.getEncoded()));
+                        .generatePrivate(new PKCS8EncodedKeySpec(
+                                fromPem(Files.readString(privFile.toPath()))));
+                areaPrivateKey.putClientProperty("__raw__",
+                        toPem("PRIVATE KEY", privLoaded.getEncoded()));
                 afficherAlgoPriv();
             }
             if (pubLoaded != null || privLoaded != null) {
                 mettreAJourEtat();
-                setStatut("✔  Clés chargées automatiquement", ACCENT_OK);
+                setStatut("✔  Clés chargées depuis le disque", ACCENT_OK);
             }
         } catch (Exception e) {
-            System.err.println("[KeyPanel] Auto-load : " + e.getMessage());
+            System.err.println("[KeyPanel] Lecture disque : " + e.getMessage());
         }
     }
 

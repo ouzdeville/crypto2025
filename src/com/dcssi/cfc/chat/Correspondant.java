@@ -3,6 +3,7 @@ package com.dcssi.cfc.chat;
 import com.dcssi.cfc.crypto.*;
 import java.io.*;
 import java.net.Socket;
+import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
@@ -27,6 +28,11 @@ public class Correspondant {
     public List<String> messages  = new ArrayList<>();
     /** Protocoles annoncés par ce correspondant (ex: psk, dh, dh_signe, kem). */
     public java.util.Set<String> protocols = new java.util.LinkedHashSet<>();
+    /** Paire de clés RSA de cet utilisateur (null si pas encore chargée/générée). */
+    private KeyPair keyPair = null;
+
+    public KeyPair getKeyPair()          { return keyPair; }
+    public void    setKeyPair(KeyPair kp){ this.keyPair = kp; }
 
     // ── Chiffrement ──────────────────────────────────────────────────────────
     private static final ICrypto crypto = new CryptoImpl();
@@ -119,6 +125,26 @@ public class Correspondant {
     /** Indique si la session est prête à chiffrer/déchiffrer. */
     public boolean isPskReady() {
         return encryptor != null && decryptor != null;
+    }
+
+    /**
+     * Initialise le chiffrement AES avec une clé fournie directement
+     * (issue d'un échange DH, KEM, etc.)
+     */
+    public void initAesKey(javax.crypto.SecretKey key) {
+        try {
+            this.secretKey = key;
+            encryptor = Cipher.getInstance(ICrypto.transform);
+            decryptor = Cipher.getInstance(ICrypto.transform);
+            IvParameterSpec ivSpec = new IvParameterSpec(ICrypto.iv.getBytes("UTF-8"));
+            encryptor.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
+            decryptor.init(Cipher.DECRYPT_MODE, secretKey, ivSpec);
+            if (bw == null)
+                bw = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+            System.out.println("[AES] Clé établie avec " + son_id);
+        } catch (Exception ex) {
+            Logger.getLogger(Correspondant.class.getName()).log(Level.SEVERE, "initAesKey", ex);
+        }
     }
 
     // ── Historique ───────────────────────────────────────────────────────────

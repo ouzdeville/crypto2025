@@ -12,19 +12,33 @@ public class Recepteur extends Thread {
     private final Correspondant serveurCorr;
     private final ChatFrame fen;
 
+    /** Négociateurs actifs : un par correspondant en cours de handshake. */
+    private final java.util.Map<String, ProtocolNegotiator> negotiators =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Enregistre un négociateur côté INITIATEUR avant l'envoi de la première trame.
+     * Empêche Recepteur de créer un nouveau négociateur (répondeur) quand
+     * la réponse de l'autre partie arrive.
+     */
+    public void registerNegociateur(String peerId, ProtocolNegotiator neg) {
+        if (neg == null) negotiators.remove(peerId);
+        else             negotiators.put(peerId, neg);
+    }
+
     public Recepteur(Socket socket, String name,
-            Correspondant serveurCorr, ChatFrame fen) {
+                     Correspondant serveurCorr, ChatFrame fen) {
         super(name);
-        this.socket = socket;
+        this.socket      = socket;
         this.serveurCorr = serveurCorr;
-        this.fen = fen;
+        this.fen         = fen;
         setDaemon(true); // s'arrête avec l'app
     }
 
     @Override
     public void run() {
-        try (BufferedReader br
-                = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+        try (BufferedReader br =
+                new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
 
             String line;
             while ((line = br.readLine()) != null) {
@@ -37,8 +51,9 @@ public class Recepteur extends Thread {
     }
 
     // ── Dispatch principal ────────────────────────────────────────────────────
+
     private void traiterLigne(String line) {
-        System.out.println("[Recepteur] ← " + line);
+        System.out.println("[Recepteur-traiterLigne] ← " + line);
 
         // ── Liste des clients ─────────────────────────────────────────────────
         if (line.startsWith("__CLIENTS__|")) {
@@ -48,23 +63,20 @@ public class Recepteur extends Thread {
         }
 
         // ── Messages serveur ignorés ──────────────────────────────────────────
-        if (line.startsWith("OK|") || line.startsWith("ERROR|")) {
-            return;
-        }
+        if (line.startsWith("OK|") || line.startsWith("ERROR|")) return;
 
         // ── Message utilisateur : "FROM|payload" ──────────────────────────────
         int sep = line.indexOf('|');
-        if (sep == -1) {
-            return;
-        }
+        if (sep == -1) return;
 
-        String from = line.substring(0, sep);
+        String from    = line.substring(0, sep);
         String payload = line.substring(sep + 1);
 
         traiterMessage(from, payload);
     }
 
     // ── Mise à jour de la liste des correspondants ────────────────────────────
+
     private void traiterListe(String listStr) {
         String[] entries = listStr.split(",");
 
@@ -72,15 +84,11 @@ public class Recepteur extends Thread {
             ChatFrame.correspondantList.clear();
 
             for (String entry : entries) {
-                if (entry.isBlank()) {
-                    continue;
-                }
+                if (entry.isBlank()) continue;
 
                 String[] info = entry.split("\\|", -1);
                 String id = info[0];
-                if (id.equalsIgnoreCase(serveurCorr.mon_id)) {
-                    continue;
-                }
+                if (id.equalsIgnoreCase(serveurCorr.mon_id)) continue;
 
                 // Chercher si le correspondant existe déjà (pour conserver PSK)
                 Correspondant existing = findCorrespondant(id);
@@ -89,12 +97,12 @@ public class Recepteur extends Thread {
                     existing = new Correspondant();
                     existing.son_id = id;
                     existing.mon_id = serveurCorr.mon_id;
-                    existing.nom = info.length > 1 ? info[1] : "";
+                    existing.nom    = info.length > 1 ? info[1] : "";
                     existing.prenom = info.length > 2 ? info[2] : "";
                     existing.socket = this.socket;
                     existing.isServer = true;
                     // bw sera partagé via le writer du serveurCorr
-                    existing.bw = serveurCorr.bw;
+                    existing.bw     = serveurCorr.bw;
                 }
 
                 ChatFrame.correspondantList.add(existing);
@@ -105,6 +113,7 @@ public class Recepteur extends Thread {
     }
 
     // ── Traitement d'un message entrant ───────────────────────────────────────
+
     private void traiterMessage(String from, String payload) {
         // -- Annonce de protocoles supportés par un pair (__BROADCAST__) --
         if (payload.startsWith("__PROTO__|")) {
@@ -113,9 +122,7 @@ public class Recepteur extends Thread {
             c.protocols.clear();
             for (String p : protos.split(",")) {
                 String trimmed = p.trim();
-                if (!trimmed.isEmpty()) {
-                    c.protocols.add(trimmed);
-                }
+                if (!trimmed.isEmpty()) c.protocols.add(trimmed);
             }
             updateCorrespondant(c);
             System.out.println("[PROTO] " + from + " supporte : " + c.protocols);
@@ -124,14 +131,48 @@ public class Recepteur extends Thread {
             return;
         }
 
-        // -- Négociation PSK côté récepteur (Bob) --
+        // -- Trame de négociation __NEG__|protocole|phase|data --
+        if (payload.startsWith("__NEG__|")) {
+            final Correspondant c = findOrCreate(from);
+
+            // computeIfAbsent : crée un répondeur SEULEMENT si l'initiateur
+            // n'a pas déjà enregistré son propre négociateur via registerNegociateur().
+            negotiators.computeIfAbsent(from, id -> {
+                System.out.println("[Répondeur] Création négociateur pour " + from);
+                return new ProtocolNegotiator(
+                    serveurCorr, c, false,
+                    (proto, key) -> {
+                        c.initAesKey(key);
+                        c.protocols.add(proto);
+                        // updateCorrespondant met aussi à jour currentCorrespondant dans ChatFrame
+                        updateCorrespondant(c);
+                        javax.swing.SwingUtilities.invokeLater(() -> {
+                            fen.syncCurrentCorrespondant(from, c);
+                            fen.rafraichirTableCorrespondants();
+                            fen.onKeyEstablished(from, proto);
+                        });
+                    });
+            });
+
+            ProtocolNegotiator neg = negotiators.get(from);
+            try {
+                System.out.println("[Négo] handleFrame pour " + from + " : " + payload.substring(0, Math.min(60, payload.length())));
+                boolean done = neg.handleFrame(payload, fen);
+                if (done) negotiators.remove(from);
+            } catch (Exception e) {
+                System.err.println("[Négo] Erreur handshake avec " + from + " : " + e.getMessage());
+                e.printStackTrace();
+                negotiators.remove(from);
+            }
+            return;
+        }
+
+        // -- Négociation PSK legacy (compatibilité ancienne version) --
         if (payload.startsWith("__NEGOCIER__|psk")) {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 String pwd = JOptionPane.showInputDialog(
                         fen, "Mot de passe partagé avec " + from + " :");
-                if (pwd == null || pwd.isBlank()) {
-                    return;
-                }
+                if (pwd == null || pwd.isBlank()) return;
 
                 Correspondant c = findOrCreate(from);
                 c.initpsk(pwd);
@@ -151,29 +192,13 @@ public class Recepteur extends Thread {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 String pwd = JOptionPane.showInputDialog(
                         fen, "Entrez le même mot de passe partagé avec " + from + " :");
-                if (pwd == null || pwd.isBlank()) {
-                    return;
-                }
+                if (pwd == null || pwd.isBlank()) return;
 
                 Correspondant c = findOrCreate(from);
                 c.initpsk(pwd);
                 updateCorrespondant(c);
                 System.out.println("[PSK] Établi avec " + from);
             });
-            return;
-        }
-
-        if (payload.startsWith("__NEGOCIER__|enc")) {
-
-            return;
-        }
-
-        if (payload.startsWith("__NEGOCIER__|dh")) {
-
-            return;
-        }
-        if (payload.startsWith("__NEGOCIER__|dh+sign")) {
-
             return;
         }
 
@@ -210,27 +235,23 @@ public class Recepteur extends Thread {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
     private Correspondant findCorrespondant(String id) {
         for (Correspondant c : ChatFrame.correspondantList) {
-            if (id.equals(c.son_id)) {
-                return c;
-            }
+            if (id.equals(c.son_id)) return c;
         }
         return null;
     }
 
-    /**
-     * Retrouve ou crée un correspondant (pour les cas de négociation avant
-     * liste).
-     */
+    /** Retrouve ou crée un correspondant (pour les cas de négociation avant liste). */
     private Correspondant findOrCreate(String id) {
         Correspondant c = findCorrespondant(id);
         if (c == null) {
             c = new Correspondant();
-            c.son_id = id;
-            c.mon_id = serveurCorr.mon_id;
-            c.socket = this.socket;
-            c.bw = serveurCorr.bw;
+            c.son_id  = id;
+            c.mon_id  = serveurCorr.mon_id;
+            c.socket  = this.socket;
+            c.bw      = serveurCorr.bw;
             c.isServer = true;
             ChatFrame.correspondantList.add(c);
         }

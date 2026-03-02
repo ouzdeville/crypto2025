@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.Socket;
 import java.util.*;
 import java.util.List;
+import java.util.Set;
 import javax.swing.*;
 import javax.swing.border.*;
 import javax.swing.table.*;
@@ -36,13 +37,16 @@ public class ChatFrame extends JFrame {
     // ── État ──────────────────────────────────────────────────────────────────
     public static final List<Correspondant> correspondantList =
             Collections.synchronizedList(new ArrayList<>());
-    private static String login;
-    private static String pass;
     public Correspondant currentCorrespondant;
     private Correspondant serveurCorr;
-    private Socket serveurSocket;
+    private Socket        serveurSocket;
+    private Recepteur     recepteur;     // référence pour registerNegociateur()
 
     // ── Composants UI ─────────────────────────────────────────────────────────
+    // ── Config locale visible dans la sidebar ─────────────────────────────────
+    public java.security.KeyPair localKeyPair = null;
+    public final Set<String> localProtocols   = new java.util.LinkedHashSet<>();
+
     private DefaultTableModel tableModel;
     private JTable tableCorrespondants;
     private JTextArea chatArea;
@@ -50,9 +54,17 @@ public class ChatFrame extends JFrame {
     private JLabel labelStatus;
     private JLabel labelInterlocuteur;
 
+    // Composants du panneau "Ma Config"
+    private JLabel    lblConfigCle;
+    private JLabel    lblConfigAlgo;
+    private JPanel    panelProtoTags;
+
     // ── Constructeur ──────────────────────────────────────────────────────────
+    private String login; // kept for KeyPanel callback
+
     public ChatFrame(String login, String password) {
         super("CFC Secure Chat — " + login.toUpperCase());
+        this.login = login;
         buildUI();
         connecter(login, password);
     }
@@ -120,21 +132,152 @@ public class ChatFrame extends JFrame {
         scroll.getViewport().setBackground(BG_PANEL);
         sidebar.add(scroll, BorderLayout.CENTER);
 
-        // Boutons bas de sidebar
+        // ── Panneau "Ma Configuration" ───────────────────────────────────────
+        sidebar.add(buildLocalConfigPanel(), BorderLayout.SOUTH);
+
+        return sidebar;
+    }
+
+    // ── Panneau config locale ─────────────────────────────────────────────────
+
+    private JPanel buildLocalConfigPanel() {
+        JPanel outer = new JPanel(new BorderLayout(0, 6));
+        outer.setBackground(BG_PANEL);
+        outer.setBorder(new EmptyBorder(8, 0, 0, 8));
+
+        // ── Carte identité / clé ──────────────────────────────────────────────
+        JPanel card = new JPanel(new BorderLayout(0, 3));
+        card.setBackground(new Color(33, 36, 46));
+        card.setBorder(new CompoundBorder(
+                BorderFactory.createLineBorder(new Color(55, 60, 76), 1),
+                new EmptyBorder(8, 10, 8, 10)));
+
+        // Ligne 1 : icône + login
+        JLabel lblLogin = new JLabel("👤  " + login.toUpperCase());
+        lblLogin.setFont(FONT_BOLD);
+        lblLogin.setForeground(TEXT_MAIN);
+
+        // Ligne 2 : état de la clé
+        lblConfigCle = new JLabel("Aucune clé chargée");
+        lblConfigCle.setFont(FONT_SMALL);
+        lblConfigCle.setForeground(new Color(200, 100, 100));
+
+        // Ligne 3 : algo + taille
+        lblConfigAlgo = new JLabel("");
+        lblConfigAlgo.setFont(new Font("Consolas", Font.PLAIN, 11));
+        lblConfigAlgo.setForeground(new Color(130, 140, 160));
+
+        JPanel lines = new JPanel(new GridLayout(3, 1, 0, 2));
+        lines.setOpaque(false);
+        lines.add(lblLogin);
+        lines.add(lblConfigCle);
+        lines.add(lblConfigAlgo);
+        card.add(lines, BorderLayout.CENTER);
+
+        // ── Tags protocoles ───────────────────────────────────────────────────
+        panelProtoTags = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        panelProtoTags.setBackground(BG_PANEL);
+        panelProtoTags.setBorder(new EmptyBorder(4, 0, 4, 0));
+        refreshProtoTags(); // initialiser (vide)
+
+        // ── Boutons ───────────────────────────────────────────────────────────
         JButton btnRefresh = buildButton("⟳  Rafraîchir", ACCENT_DARK);
         btnRefresh.addActionListener(e -> demanderListe());
 
         JButton btnMesCles = buildButton("🔑  Mes Clés", new Color(90, 75, 130));
-        btnMesCles.addActionListener(e -> new KeyPanel(this, login, serveurCorr));
+        btnMesCles.addActionListener(e -> new KeyPanel(this, login, serveurCorr, ChatFrame.this));
 
         JPanel btnPanel = new JPanel(new GridLayout(2, 1, 0, 6));
         btnPanel.setBackground(BG_PANEL);
-        btnPanel.setBorder(new EmptyBorder(8, 0, 0, 8));
+        btnPanel.setBorder(new EmptyBorder(6, 0, 0, 0));
         btnPanel.add(btnRefresh);
         btnPanel.add(btnMesCles);
-        sidebar.add(btnPanel, BorderLayout.SOUTH);
 
-        return sidebar;
+        outer.add(card,           BorderLayout.NORTH);
+        outer.add(panelProtoTags, BorderLayout.CENTER);
+        outer.add(btnPanel,       BorderLayout.SOUTH);
+        return outer;
+    }
+
+    // ── Callback depuis KeyPanel ──────────────────────────────────────────────
+
+    /**
+     * Appelé par KeyPanel chaque fois que la config change
+     * (clé générée/chargée, protocoles cochés).
+     */
+    public void refreshLocalConfig(java.security.KeyPair kp, Set<String> protocols) {
+        this.localKeyPair = kp;
+        this.localProtocols.clear();
+        this.localProtocols.addAll(protocols);
+
+        // Propager les protocoles dans serveurCorr pour la négociation
+        if (serveurCorr != null) {
+            serveurCorr.protocols.clear();
+            serveurCorr.protocols.addAll(protocols);
+            if (kp != null) serveurCorr.setKeyPair(kp);
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            // Mettre à jour le label clé
+            if (kp != null) {
+                java.security.Key pub = kp.getPublic();
+                String algo = pub.getAlgorithm();
+                int bits = 0;
+                if (pub instanceof java.security.interfaces.RSAKey)
+                    bits = ((java.security.interfaces.RSAKey) pub).getModulus().bitLength();
+                lblConfigCle.setText("🔑 Clé chargée");
+                lblConfigCle.setForeground(ONLINE_DOT);
+                lblConfigAlgo.setText(algo + (bits > 0 ? "  " + bits + " bits" : ""));
+            } else {
+                lblConfigCle.setText("Aucune clé chargée");
+                lblConfigCle.setForeground(new Color(200, 100, 100));
+                lblConfigAlgo.setText("");
+            }
+            refreshProtoTags();
+        });
+    }
+
+    /** Redessine les tags de protocoles dans la sidebar. */
+    private void refreshProtoTags() {
+        panelProtoTags.removeAll();
+
+        if (localProtocols.isEmpty()) {
+            JLabel none = new JLabel("Aucun protocole");
+            none.setFont(FONT_SMALL);
+            none.setForeground(TEXT_MUTED);
+            panelProtoTags.add(none);
+        } else {
+            // Couleurs par protocole
+            java.util.Map<String, Color> colors = new java.util.HashMap<>();
+            colors.put("psk",      new Color(80, 120, 80));
+            colors.put("dh",       new Color(60, 100, 140));
+            colors.put("dh_signe", new Color(120, 80, 140));
+            colors.put("kem",      new Color(140, 100, 50));
+
+            for (String p : localProtocols) {
+                Color bg = colors.getOrDefault(p, new Color(60, 65, 80));
+                panelProtoTags.add(makeProtoTag(p.toUpperCase(), bg));
+            }
+        }
+        panelProtoTags.revalidate();
+        panelProtoTags.repaint();
+    }
+
+    private JLabel makeProtoTag(String label, Color bg) {
+        JLabel tag = new JLabel("  " + label + "  ") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose(); super.paintComponent(g);
+            }
+        };
+        tag.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        tag.setForeground(new Color(210, 220, 235));
+        tag.setOpaque(false);
+        return tag;
     }
 
     // ── Zone de chat ──────────────────────────────────────────────────────────
@@ -243,20 +386,79 @@ public class ChatFrame extends JFrame {
 
         // Afficher l'historique
         chatArea.setText("");
-        for (String msg : c.messages) {
-            appendChat(msg);
+        for (String msg : c.messages) appendChat(msg);
+
+        // Si clé déjà établie → juste afficher
+        if (c.isPskReady()) {
+            setStatus("🔒 Chiffré (" + c.protocols.stream().findFirst().orElse("?") + ")", ONLINE_DOT);
+            return;
         }
 
-        // Négocier PSK si pas encore fait
-        if (!c.isPskReady()) {
+        // Calculer les protocoles locaux (ceux cochés dans KeyPanel)
+        // stockés dans serveurCorr.protocols
+        Set<String> mesProtos  = serveurCorr != null ? serveurCorr.protocols : new java.util.LinkedHashSet<>();
+        Set<String> sesProtos  = c.protocols;
+
+        if (mesProtos.isEmpty() && sesProtos.isEmpty()) {
+            // Aucune annonce de part et d'autre → fallback PSK direct
+            //mesProtos = new java.util.LinkedHashSet<>(java.util.Arrays.asList("psk"));
+            //sesProtos = mesProtos;
+        }
+
+        // Ouvrir le dialogue de sélection
+        NegociationDialog dlg = new NegociationDialog(this, mesProtos, c.son_id, sesProtos);
+        String proto = dlg.getChoix();
+        if (proto == null) return; // annulé
+
+        // Lancer la négociation dans un thread séparé
+        final Correspondant target = c;
+        final String choix = proto;
+        new Thread(() -> {
             try {
-                c.sendClearMessage(c.son_id, "__NEGOCIER__|psk");
-                setStatus("Négociation PSK avec " + c.son_id + "…", TEXT_MUTED);
+                ProtocolNegotiator neg = new ProtocolNegotiator(
+                        serveurCorr, target, true,   // initiateur=true
+                        (p, key) -> {
+                            target.initAesKey(key);
+                            target.protocols.add(p);
+                            updateCorrespondant(target);
+                            SwingUtilities.invokeLater(() -> {
+                                rafraichirTableCorrespondants();
+                                onKeyEstablished(target.son_id, p);
+                            });
+                        });
+
+                // ── CRITIQUE : enregistrer l'initiateur dans Recepteur AVANT d'envoyer
+                // Sinon, quand la réponse arrive, Recepteur créerait un nouveau
+                // négociateur (répondeur) sans la clé privée DH d'Alice.
+                if (recepteur != null) {
+                    recepteur.registerNegociateur(target.son_id, neg);
+                }
+                System.out.println("Le choix de l'initiateur->"+choix);
+                neg.sendInit(choix, this);
+
+            } catch (ProtocolNegotiator.CancelledException ex) {
+                System.out.println("[Négo] Annulé par l'utilisateur");
             } catch (Exception ex) {
-                erreur("Impossible de contacter " + c.son_id + " : " + ex.getMessage());
+                SwingUtilities.invokeLater(() ->
+                    erreur("Erreur de négociation (" + choix + ") :\n" + ex.getMessage()));
+                // Nettoyer le négociateur en cas d'erreur
+                if (recepteur != null) recepteur.registerNegociateur(target.son_id, null);
             }
-        } else {
-            setStatus("● Chiffré (PSK)", ONLINE_DOT);
+        }, "negociation-" + target.son_id).start();
+    }
+
+    /** Met à jour un correspondant dans la liste globale ET currentCorrespondant si besoin. */
+    private void updateCorrespondant(Correspondant updated) {
+        for (int i = 0; i < correspondantList.size(); i++) {
+            if (updated.son_id.equals(correspondantList.get(i).son_id)) {
+                correspondantList.set(i, updated);
+                break;
+            }
+        }
+        // Synchroniser currentCorrespondant si c'est le même peer
+        if (currentCorrespondant != null
+                && updated.son_id.equals(currentCorrespondant.son_id)) {
+            currentCorrespondant = updated;
         }
     }
 
@@ -265,9 +467,15 @@ public class ChatFrame extends JFrame {
             erreur("Sélectionnez un contact avant d'envoyer.");
             return;
         }
+
+        // Toujours relire l'objet le plus récent depuis la liste
+        // (la négociation peut avoir mis à jour les champs cipher entre-temps)
+        Correspondant fresh = findFresh(currentCorrespondant.son_id);
+        if (fresh != null) currentCorrespondant = fresh;
+
         if (!currentCorrespondant.isPskReady()) {
             erreur("Clé non encore négociée avec " + currentCorrespondant.son_id
-                    + ".\nCliquez d'abord sur le contact pour lancer la négociation PSK.");
+                    + ".\nCliquez sur le contact pour lancer la négociation.");
             return;
         }
 
@@ -282,6 +490,14 @@ public class ChatFrame extends JFrame {
         } catch (Exception ex) {
             erreur("Envoi échoué : " + ex.getMessage());
         }
+    }
+
+    /** Retourne l'objet Correspondant le plus récent dans la liste par son id. */
+    private Correspondant findFresh(String id) {
+        for (Correspondant c : correspondantList) {
+            if (id.equals(c.son_id)) return c;
+        }
+        return null;
     }
 
     private void demanderListe() {
@@ -299,8 +515,7 @@ public class ChatFrame extends JFrame {
             serveurSocket = new Socket("127.0.0.1", 2026);
 
             // Enregistrement
-            BufferedWriter bw = new BufferedWriter(
-                    new OutputStreamWriter(serveurSocket.getOutputStream()));
+            BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(serveurSocket.getOutputStream()));
             bw.write(login + "|nom|prenom");
             bw.newLine();
             bw.flush();
@@ -310,7 +525,8 @@ public class ChatFrame extends JFrame {
             serveurCorr.bw = bw; // partager le writer
 
             // Thread d'écoute
-            new Recepteur(serveurSocket, login, serveurCorr, this).start();
+            recepteur = new Recepteur(serveurSocket, login, serveurCorr, this);
+            recepteur.start();
 
             setStatus("● Connecté au serveur", ONLINE_DOT);
             JOptionPane.showMessageDialog(this, "Connecté !", "Succès", JOptionPane.INFORMATION_MESSAGE);
@@ -336,6 +552,23 @@ public class ChatFrame extends JFrame {
 
     public void ajouterMessageChat(String message) {
         appendChat(message);
+    }
+
+    /** Appelé quand une clé est établie (initiateur ou répondeur). */
+    public void onKeyEstablished(String peerId, String protocole) {
+        setStatus("🔒 Chiffré (" + protocole + ") avec " + peerId, ONLINE_DOT);
+        rafraichirTableCorrespondants();
+    }
+
+    /**
+     * Synchronise currentCorrespondant avec l'objet le plus récent.
+     * Appelé par Recepteur après initAesKey() côté répondeur.
+     */
+    public void syncCurrentCorrespondant(String peerId, Correspondant fresh) {
+        if (currentCorrespondant != null
+                && peerId.equals(currentCorrespondant.son_id)) {
+            currentCorrespondant = fresh;
+        }
     }
 
     // ── Helpers UI ────────────────────────────────────────────────────────────
@@ -460,8 +693,8 @@ public class ChatFrame extends JFrame {
 
         if (res != JOptionPane.OK_OPTION) System.exit(0);
 
-         login = loginField.getText().trim();
-         pass  = new String(passField.getPassword());
+        String login = loginField.getText().trim();
+        String pass  = new String(passField.getPassword());
         if (login.isEmpty()) { JOptionPane.showMessageDialog(null, "Login requis."); System.exit(1); }
 
         SwingUtilities.invokeLater(() -> {
