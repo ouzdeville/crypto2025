@@ -278,7 +278,7 @@ public class ProtocolNegotiator {
     /** Bob reçoit la clé AES chiffrée, la déchiffre avec sa clé privée */
     private boolean handleKEM(String phase, String data) throws Exception {
         // si INIT "INIT".equals(phase) && !initiateurRole
-        // recupere la cle publique de this.local
+        // recupere la cle privee de this.local
         // decode data Base64.getDecoder().decode(data);
         // dechiffre avec ma cle privee
         //SecretKey aesKey = new SecretKeySpec(aesBytes, "AES");

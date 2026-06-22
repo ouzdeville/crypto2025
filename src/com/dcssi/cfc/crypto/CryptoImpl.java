@@ -1,11 +1,19 @@
 package com.dcssi.cfc.crypto;
 import java.awt.Point;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.security.*;
+import java.security.spec.DSAGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
@@ -94,6 +102,8 @@ public class CryptoImpl implements ICrypto {
             while((nbreBytesLus=cis.read(buffer))!=-1){
                 fos.write(buffer, 0, nbreBytesLus);
             }
+            
+            
             cis.close();
             fis.close();
             fos.close();    
@@ -175,8 +185,16 @@ public class CryptoImpl implements ICrypto {
 
     @Override
     public KeyPair generateKeyPair(byte[] seed) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'generateKeyPair'");
+        try {
+            KeyPairGenerator kg=KeyPairGenerator.getInstance(ICrypto.algoAsym);
+            SecureRandom sc=new SecureRandom(seed);
+            kg.initialize(ICrypto.keysizeAsym, sc);
+            return kg.genKeyPair();
+            
+        } catch (Exception ex) {
+            Logger.getLogger(CryptoImpl.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return null;
     }
 
     @Override
@@ -243,16 +261,134 @@ public class CryptoImpl implements ICrypto {
         return false;
     }
 
-    @Override
-    public boolean HybridEnCrypt(PublicKey k, String fileToencrypt, String encryptedFile) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'HybridEnCrypt'");
+   public boolean HybridEnCrypt(PublicKey k, String fileToencrypt, String encryptedFile) {
+        try {
+            SecretKey secretKey = generateKey();
+            
+            System.out.println("Secret Key:");
+            System.out.println(bytesToHex(secretKey.getEncoded()));
+            IvParameterSpec IvParam = new IvParameterSpec(iv.getBytes());
+            System.out.println("IV:");
+            System.out.println(bytesToHex(IvParam.getIV()));
+            byte[] keypack = packKeyAndIv(secretKey, IvParam);
+            Cipher pubCipher=Cipher.getInstance(algoAsym);
+            pubCipher.init(Cipher.ENCRYPT_MODE, k);
+            byte[] encryptedPack = pubCipher.doFinal(keypack);
+            String encryptedPackHex = bytesToHex(encryptedPack);
+            
+            //chiffrement symetrique
+            Cipher symCipher=Cipher.getInstance(transform);
+            symCipher.init(Cipher.ENCRYPT_MODE, secretKey, IvParam);
+            FileInputStream fis=new FileInputStream(fileToencrypt);
+            
+            System.out.println("TextZise:"+fis.available());
+            CipherInputStream cis=new CipherInputStream(fis, symCipher);
+            
+            byte[] buffer = new byte[1024 * 1024];
+            byte[] buffer1 = new byte[0];
+            int nombrebytes = 0;
+            while ((nombrebytes = cis.read(buffer)) != -1) {
+                buffer1=concat(buffer1, buffer, nombrebytes);
+            }
+            
+            String encryptedFileHex = bytesToHex(buffer1);
+            System.out.println("Secret Message:");
+            System.out.println(encryptedFileHex);
+            
+            FileOutputStream fos=new FileOutputStream(encryptedFile);
+            PrintWriter pw=new PrintWriter(fos, true);
+            pw.println("-----ENCRYPTED KEY-----");
+            pw.println(encryptedPackHex);
+            pw.println("-----END ENCRYPTED KEY-----");
+            
+            pw.println("-----ENCRYPTED MESSAGE-----");
+            pw.println(encryptedFileHex);
+            pw.println("-----END ENCRYPTED MESSAGE-----");
+            
+            fis.close();
+            pw.close();
+            fos.close();
+            return true;
+        } catch (Exception ex) {
+            Logger.getLogger(CryptoImpl.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return false;
     }
 
     @Override
-    public boolean HybridDeCrypt(PrivateKey k, String fileToencrypt, String encreptedFile) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'HybridDeCrypt'");
+    public boolean HybridDeCrypt(PrivateKey k, String fileTodecrypt, String decryptedFile) {
+        try {
+            //FileInputStream fis=new FileInputStream(fileTodecrypt);
+            FileReader fr=new FileReader(fileTodecrypt);
+            // comme cest du text on peut utiliser BufferedReader
+            BufferedReader br=new BufferedReader(fr);
+            br.readLine();//-----ENCRYPTED KEY-----
+            String encryptedPackHex = br.readLine();
+            br.readLine();//-----END ENCRYPTED KEY-----
+            br.readLine();//-----ENCRYPTED MESSAGE-----
+            String encryptedFileHex = br.readLine();
+            System.out.println("Secret Message:");
+            System.out.println(encryptedFileHex);
+            br.close();
+            fr.close();
+            
+            //dechiffrement de la cle et IV par la cle privee
+            byte[] encryptedPack = hextoBytes(encryptedPackHex);
+            Cipher pubCipher=Cipher.getInstance(algoAsym);
+            pubCipher.init(Cipher.DECRYPT_MODE, k);
+            byte[] keypack = pubCipher.doFinal(encryptedPack);
+            Object[] keyAndIV = unpackKeyAndIV(keypack);
+            SecretKeySpec keySym = (SecretKeySpec) keyAndIV[0];
+            System.out.println("Secret Key:");
+            System.out.println(bytesToHex(keySym.getEncoded()));
+            IvParameterSpec ivParam=(IvParameterSpec) keyAndIV[1];
+            System.out.println("IV:");
+            System.out.println(bytesToHex(ivParam.getIV()));
+            //System.out.println(new String(ivParam.getIV()));
+            
+            // dechiffrement du document
+            byte[] encryptedFile = hextoBytes(encryptedFileHex);
+            Cipher symCipher=Cipher.getInstance(transform);
+            symCipher.init(Cipher.DECRYPT_MODE, keySym, ivParam);
+            FileOutputStream fos=new FileOutputStream(decryptedFile);
+            CipherOutputStream cos=new CipherOutputStream(fos, symCipher);
+            cos.write(encryptedFile);
+            cos.close();
+            fos.close();
+            
+            
+        } catch (Exception ex) {
+            Logger.getLogger(CryptoImpl.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        
+        return false;
+    }
+    
+    private static byte[] packKeyAndIv(Key key, IvParameterSpec ivSpec) throws IOException {
+        ByteArrayOutputStream bOut = new ByteArrayOutputStream();
+
+        bOut.write(ivSpec.getIV());
+        bOut.write(key.getEncoded());
+
+        return bOut.toByteArray();
+    }
+
+    private static Object[] unpackKeyAndIV(byte[] data) {
+        byte[] keyD = new byte[keysize / 8];
+        byte[] iv = new byte[data.length - keyD.length];
+
+        return new Object[]{
+            new SecretKeySpec(data, iv.length, keyD.length, algo),
+            new IvParameterSpec(data, 0, iv.length)
+        };
+    }
+    private static byte[] concat(byte[] a, byte[] b, int nbrLu) throws IOException {
+        ByteArrayOutputStream bOut = new ByteArrayOutputStream();
+
+        bOut.write(a);
+        bOut.write(b,0,nbrLu);
+
+        return bOut.toByteArray();
     }
 
     @Override

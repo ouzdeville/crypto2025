@@ -4,9 +4,12 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
+import java.security.spec.DSAGenParameterSpec;
+import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.*;
 import java.util.List;
 import java.util.Set;
+import javax.crypto.spec.DHGenParameterSpec;
 import javax.swing.*;
 import javax.swing.border.*;
 import javax.swing.table.*;
@@ -376,6 +379,7 @@ public class ChatFrame extends JFrame {
     // ── Actions ───────────────────────────────────────────────────────────────
 
     private void onContactClick() {
+        
         int row = tableCorrespondants.getSelectedRow();
         if (row == -1) return;
 

@@ -1,22 +1,34 @@
-import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
+import java.security.AlgorithmParameterGenerator;
+import java.security.AlgorithmParameters;
+import java.security.KeyPairGenerator;
+import java.security.Security;
+import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.DSAParameterSpec;
 
-import com.dcssi.cfc.crypto.CryptoImpl;
-import com.dcssi.cfc.crypto.ICrypto;
+import org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider;
 
-public class Test {
+public class Test{
 
-    public static void main(String[] args) {
-        CryptoImpl crypto = new CryptoImpl();
+    public static void main(String[] args) throws Exception {
 
-        SecretKey key;
+        Security.addProvider(new BouncyCastleFipsProvider());
 
-        //crypto.saveHexKey(key, "mykey.key", null);
-        key= crypto.generatePBEKey("INGENIEUR");
-        crypto.cipherProcessFolder(key,
-             "dossier",
-              "dossier",
-               Cipher.DECRYPT_MODE,
-                true);
+        AlgorithmParameterGenerator paramGen =
+            AlgorithmParameterGenerator.getInstance("DSA", "BCFIPS");
+
+        paramGen.init(2048); // FIPS compliant
+
+        AlgorithmParameters params = paramGen.generateParameters();
+        
+        DSAParameterSpec dsaSpec =params.getParameterSpec(DSAParameterSpec.class);
+
+        System.out.println("p=" + dsaSpec.getP());
+        System.out.println("q=" + dsaSpec.getQ());
+        System.out.println("g=" + dsaSpec.getG());
+
+        KeyPairGenerator kp=KeyPairGenerator.getInstance("DSA", "BCFIPS");
+        kp.initialize(dsaSpec);
+        
+        kp.generateKeyPair();
     }
 }
